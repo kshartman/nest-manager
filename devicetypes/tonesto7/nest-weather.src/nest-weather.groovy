@@ -12,7 +12,7 @@ import java.text.SimpleDateFormat
 
 preferences {  }
 
-def devVer() { return "5.3.6" }
+def devVer() { return "5.4.0" }
 
 metadata {
 	definition (name: "${textDevName()}", namespace: "tonesto7", author: "Anthony S.") {
@@ -235,9 +235,7 @@ def modifyDeviceStatus(status) {
 
 def ping() {
 	LogAction("Ping", "info", true)
-//	if(useTrackedHealth()) {
-		keepAwakeEvent()
-//	}
+	keepAwakeEvent()
 }
 
 def keepAwakeEvent() {
@@ -341,24 +339,22 @@ void processEvent() {
 			state.useMilitaryTime = eventData?.mt ? true : false
 			state.showLogNamePrefix = eventData?.logPrefix == true ? true : false
 			state.enRemDiagLogging = eventData?.enRemDiagLogging == true ? true : false
-			state.healthMsg = eventData?.healthNotify == true ? true : false
+			state.healthMsg = eventData?.healthNotify?.healthMsg == true ? true : false
+			state.healthMsgWait = eventData?.healthNotify?.healthMsgWait
 			state.showGraphs = eventData?.showGraphs == true ? true : false
 			if(eventData?.allowDbException) { state?.allowDbException = eventData?.allowDbException = false ? false : true }
 			debugOnEvent(eventData?.debug ? true : false)
 			deviceVerEvent(eventData?.latestVer.toString())
 			state.tempUnit = getTemperatureScale()
-//			if(useTrackedHealth()) {
-				if(eventData.hcTimeout && (state?.hcTimeout != eventData?.hcTimeout || !state?.hcTimeout)) {
-					state.hcTimeout = eventData?.hcTimeout
-					verifyHC()
-				}
-//			}
+			if(eventData.hcTimeout && (state?.hcTimeout != eventData?.hcTimeout || !state?.hcTimeout)) {
+				state.hcTimeout = eventData?.hcTimeout
+				verifyHC()
+			}
 			state.clientBl = eventData?.clientBl == true ? true : false
 			state.mobileClientType = eventData?.mobileClientType
 			state.nestTimeZone = eventData?.tz ?: null
 			state.weatherAlertNotify = !eventData?.weathAlertNotif ? false : true
 			apiStatusEvent(eventData?.apiIssues)
-			if(eventData?.htmlInfo) { state?.htmlInfo = eventData?.htmlInfo }
 
 			if(state?.curWeather == null) {
 				def curWeather = eventData?.data?.weatCond?.current_observation ? eventData?.data?.weatCond : null
@@ -557,8 +553,9 @@ def healthNotifyOk() {
 	def lastDt = state?.lastHealthNotifyDt
 	if(lastDt) {
 		def ldtSec = getTimeDiffSeconds(lastDt)
+		def t0 = state.healthMsgWait ?: 3600
 		LogAction("healtNotifyOk: ldtSec: $ldtSec", "debug", true)
-		if(ldtSec < 600) {
+		if(ldtSec < t0) {
 			return false
 		}
 	}
@@ -1712,14 +1709,12 @@ def getWeatherHTML() {
 						</div>
 					</div>
 					<script>
-						function reloadWeatherPage() {
-							// var url = "https://" + window.location.host + "/api/devices/${device?.getId()}/getWeatherHTML"
-							// window.location = url;
+						function reloadPage() {
 							window.location.reload();
 						}
 					</script>
 					<div class="pageFooterBtn">
-					    <button type="button" class="btn btn-info pageFooterBtn" onclick="reloadWeatherPage()">
+					    <button type="button" class="btn btn-info pageFooterBtn" onclick="reloadPage()">
 						  <span>&#10227;</span> Refresh
 					    </button>
 					</div>
@@ -1918,7 +1913,6 @@ def historyGraphHtml(devNum="") {
 				<p>This may take at a couple hours</p>
 				</div>
 			"""
-/* """ */
 		}
 	}
 }

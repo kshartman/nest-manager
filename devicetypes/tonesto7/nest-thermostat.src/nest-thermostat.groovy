@@ -13,22 +13,16 @@
 import java.text.SimpleDateFormat
 import groovy.time.*
 
-def devVer() { return "5.3.6" }
+def devVer() { return "5.4.0" }
 
 // for the UI
 metadata {
-	definition (name: "${textDevName()}", namespace: "tonesto7", author: "Anthony S.") {
+	definition (name: "${textDevName()}", namespace: "tonesto7", author: "Anthony S.", vid: "SmartThings-smartthings-Z-Wave_Thermostat") {
 		capability "Actuator"
 		capability "Relative Humidity Measurement"
 		capability "Refresh"
 		capability "Sensor"
 		capability "Thermostat"
-		//capability "Thermostat Cooling Setpoint"
-		//capability "Thermostat Fan Mode"
-		//capability "Thermostat Heating Setpoint"
-		//capability "Thermostat Mode"
-		//capability "Thermostat Operating State"
-		//capability "Thermostat Setpoint"
 		capability "Temperature Measurement"
 		capability "Health Check"
 
@@ -114,20 +108,20 @@ metadata {
 	tiles(scale: 2) {
 		multiAttributeTile(name:"temperature", type:"thermostat", width:6, height:4, canChangeIcon: true) {
 			tileAttribute("device.temperature", key: "PRIMARY_CONTROL") {
-				attributeState("default", label:'${currentValue}\u00b0')
+				attributeState("temperature", label:'${currentValue}\u00b0')
 			}
 			tileAttribute("device.temperature", key: "VALUE_CONTROL") {
-				attributeState("default", action: "levelUpDown")
+				// attributeState("default", action: "levelUpDown")
 				attributeState("VALUE_UP", action: "levelUp")
 				attributeState("VALUE_DOWN", action: "levelDown")
 			}
 			tileAttribute("device.humidity", key: "SECONDARY_CONTROL") {
-				attributeState("default", label:'${currentValue}%', unit:"%")
+				attributeState("humidity", label:'${currentValue}%', unit:"%", defaultState: true)
 			}
 			tileAttribute("device.thermostatOperatingState", key: "OPERATING_STATE") {
 				attributeState("idle",			backgroundColor:"#44B621")
-				attributeState("heating",		 backgroundColor:"#FFA81E")
-				attributeState("cooling",		 backgroundColor:"#2ABBF0")
+				attributeState("heating",		 backgroundColor:"#e86d13")
+				attributeState("cooling",		 backgroundColor:"#00a0dc")
 				attributeState("fan only",		  backgroundColor:"#145D78")
 				attributeState("pending heat",	  backgroundColor:"#B27515")
 				attributeState("pending cool",	  backgroundColor:"#197090")
@@ -416,9 +410,7 @@ def modifyDeviceStatus(status) {
 
 def ping() {
 	Logger("ping...")
-//	if(useTrackedHealth()) {
-		keepAwakeEvent()
-//	}
+	keepAwakeEvent()
 }
 
 def keepAwakeEvent() {
@@ -486,18 +478,17 @@ void processEvent(data) {
 			state.useMilitaryTime = eventData?.mt ? true : false
 			state.showLogNamePrefix = eventData?.logPrefix == true ? true : false
 			state.enRemDiagLogging = eventData?.enRemDiagLogging == true ? true : false
-			state.healthMsg = eventData?.healthNotify == true ? true : false
+			state.healthMsg = eventData?.healthNotify?.healthMsg == true ? true : false
+			state.healthMsgWait = eventData?.healthNotify?.healthMsgWait
 			state.showGraphs = eventData?.showGraphs != null ? eventData?.showGraphs : true
 			if(eventData?.allowDbException) { state?.allowDbException = eventData?.allowDbException = false ? false : true }
 			debugOnEvent(eventData?.debug ? true : false)
 			deviceVerEvent(eventData?.latestVer.toString())
 			if(virtType()) { nestTypeEvent("virtual") } else { nestTypeEvent("physical") }
-//			if(useTrackedHealth()) {
-				if(eventData.hcTimeout && (state?.hcTimeout != eventData?.hcTimeout || !state?.hcTimeout)) {
-					state.hcTimeout = eventData?.hcTimeout
-					verifyHC()
-				}
-//			}
+			if(eventData.hcTimeout && (state?.hcTimeout != eventData?.hcTimeout || !state?.hcTimeout)) {
+				state.hcTimeout = eventData?.hcTimeout
+				verifyHC()
+			}
 			if(state?.swVersion != devVer()) {
 				initialize()
 				state.swVersion = devVer()
@@ -537,7 +528,6 @@ void processEvent(data) {
 			softwareVerEvent(eventData?.data?.software_version.toString())
 			//onlineStatusEvent(eventData?.data?.is_online.toString())
 			apiStatusEvent(eventData?.apiIssues)
-			if(eventData?.htmlInfo) { state?.htmlInfo = eventData?.htmlInfo }
 			safetyTempsEvent(eventData?.safetyTemps)
 			comfortHumidityEvent(eventData?.comfortHumidity)
 			comfortDewpointEvent(eventData?.comfortDewpoint)
@@ -804,7 +794,6 @@ def lastCheckinEvent(checkin, isOnline) {
 	tf.setTimeZone(getTimeZone())
 
 	def lastChk = device.currentState("lastConnection")?.value
-	def lastConnSeconds = (lastChk && lastChk != "Not Available") ? getTimeDiffSeconds(lastChk) : 3000
 	def prevOnlineStat = device.currentState("onlineStatus")?.value
 
 	def hcTimeout = getHcTimeout()
@@ -820,11 +809,15 @@ def lastCheckinEvent(checkin, isOnline) {
 		sendEvent(name: 'lastConnection', value: curConnFmt?.toString(), isStateChange: true)
 	} else { LogAction("Last Nest Check-in was: (${curConnFmt}) | Original State: (${lastChk})") }
 
-	LogAction("lastCheckinEvent($checkin, $isOnline) | onlineStatus: $onlineStat | lastConnSeconds: $lastConnSeconds | hcTimeout: ${hcTimeout} | curConnSeconds: ${curConnSeconds}")
+	lastChk = device.currentState("lastConnection")?.value
+	def lastConnSeconds = (lastChk && lastChk != "Not Available") ? getTimeDiffSeconds(lastChk) : 3000
 
 	if(hcTimeout && isOnline.toString() == "true" && curConnSeconds > hcTimeout && lastConnSeconds > hcTimeout) {
 		onlineStat = "offline"
 		LogAction("lastCheckinEvent: UPDATED onlineStatus: $onlineStat")
+		Logger("lastCheckinEvent($checkin, $isOnline) | onlineStatus: $onlineStat | lastConnSeconds: $lastConnSeconds | hcTimeout: ${hcTimeout} | curConnSeconds: ${curConnSeconds}")
+	} else {
+		LogAction("lastCheckinEvent($checkin, $isOnline) | onlineStatus: $onlineStat | lastConnSeconds: $lastConnSeconds | hcTimeout: ${hcTimeout} | curConnSeconds: ${curConnSeconds}")
 	}
 
 	state?.onlineStatus = onlineStat
@@ -1402,7 +1395,8 @@ def healthNotifyOk() {
 	def lastDt = state?.lastHealthNotifyDt
 	if(lastDt) {
 		def ldtSec = getTimeDiffSeconds(lastDt)
-		if(ldtSec < 600) {
+		def t0 = state.healthMsgWait ?: 3600
+		if(ldtSec < t0) {
 			return false
 		}
 	}
@@ -3300,8 +3294,7 @@ def getGraphHTML() {
 
 		def timeToTarget = device.currentState("timeToTarget").stringValue
 		def sunCorrectStr = state?.sunCorrectEnabled ? "Enabled (${state?.sunCorrectActive == true ? "Active" : "Inactive"})" : "Disabled"
-		def refreshBtnHtml = state.mobileClientType == "ios" ?
-				"""<div class="pageFooterBtn"><button type="button" class="btn btn-info pageFooterBtn" onclick="reloadTstatPage()"><span>&#10227;</span> Refresh</button></div>""" : ""
+		def refreshBtnHtml = state.mobileClientType == "ios" ? """<div class="pageFooterCls"><p class="slideFooterText">Swipe/Tap to Change Slide</p><button type="button" class="btn btn-info slideFooterBtn" onclick="reloadPage()"><span>&#10227;</span> Refresh</button></div>""" : ""
 		def chartHtml = (
 				state?.showGraphs &&
 				state?.temperatureTable?.size() > 0 &&
@@ -3412,6 +3405,9 @@ def getGraphHTML() {
 				<script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
 				<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.1.1/jquery.min.js"></script>
 				<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/Swiper/3.4.2/js/swiper.min.js"></script>
+				<style>
+					
+				</style>
 			</head>
 			<body>
 				${getChgLogHtml()}
@@ -3495,10 +3491,7 @@ def getGraphHTML() {
 					</div>
 					<!-- If we need pagination -->
 					<div class="swiper-pagination"></div>
-
-					<div style="text-align: center;">
-						<p class="slideFooterMsg">Swipe-Tap to Change Slide</p>
-					</div>
+					<div style="text-align: center; padding: 25px 0;"></div>
 				</div>
 				<script>
 					var mySwiper = new Swiper ('.swiper-container', {
@@ -3534,10 +3527,8 @@ def getGraphHTML() {
 						pagination: '.swiper-pagination',
 						paginationHide: false,
 						paginationClickable: true
-					})
-					function reloadTstatPage() {
-						// var url = "https://" + window.location.host + "/api/devices/${device?.getId()}/graphHTML"
-						// window.location = url;
+					});
+					function reloadPage() {
 						window.location.reload();
 					}
 				</script>
@@ -3545,7 +3536,6 @@ def getGraphHTML() {
 			</body>
 		</html>
 		"""
-/* """ */
 		incHtmlLoadCnt()
 		render contentType: "text/html", data: html, status: 200
 	} catch (ex) {
@@ -3746,11 +3736,10 @@ def getDeviceTile(devNum) {
 						${chartHtml}
 					</div>
 					<!-- If we need pagination -->
-					<div class="swiper-pagination"></div>
-
-					<div style="text-align: center;">
-						<p class="slideFooterMsg">Swipe/Drag to Change Slide</p>
+					<div style="text-align: center; padding: 20px;">
+						<p class="slideFooterTextTile">Swipe/Drag to Change Slide</p>
 					</div>
+					<div class="swiper-pagination"></div>
 				</div>
 			</div>
 			<script>
@@ -3761,10 +3750,10 @@ def getDeviceTile(devNum) {
 					loop: false,
 					slidesPerView: '1',
 					centeredSlides: true,
-					spaceBetween: 200,
+					spaceBetween: 100,
 					autoHeight: true,
 					keyboardControl: true,
-        			mousewheelControl: true,
+					mousewheelControl: true,
 					iOSEdgeSwipeDetection: true,
 					iOSEdgeSwipeThreshold: 20,
 					parallax: true,
@@ -3772,11 +3761,11 @@ def getDeviceTile(devNum) {
 
 					effect: 'coverflow',
 					coverflow: {
-					  rotate: 50,
-					  stretch: 0,
-					  depth: 100,
-					  modifier: 1,
-					  slideShadows : true
+						rotate: 50,
+						stretch: 0,
+						depth: 100,
+						modifier: 1,
+						slideShadows : true
 					},
 					onTap: function(s, e) {
 						s.slideNext(false);
@@ -3787,15 +3776,12 @@ def getDeviceTile(devNum) {
 					pagination: '.swiper-pagination',
 					paginationHide: false,
 					paginationClickable: true
-				})
+				});
 				function reloadTstatPage() {
-					// var url = "https://" + window.location.host + "/api/devices/${device?.getId()}/graphHTML"
-					// window.location = url;
 					window.location.reload();
 				}
 			</script>
 		"""
-/* """ */
 		render contentType: "text/html", data: html, status: 200
 	} catch (ex) {
 		log.error "getDeviceTile Exception:", ex
@@ -4059,12 +4045,16 @@ def showChartHtml(devNum="") {
 					seriesType: 'bars',
 					colors: ['#FF9900', '#0066FF', '#884ae5'],
 					chartArea: {
-					  left: '15%',
-					  right: '23%',
+					  left: '10%',
+					  right: '5%',
 					  top: '7%',
 					  bottom: '10%',
-					  height: '100%',
-					  width: '90%'
+					  height: '95%',
+					  width: '100%'
+					},
+					legend: {
+						position: 'bottom',
+						maxLines: 4
 					}
 				};
 
@@ -4090,7 +4080,6 @@ def showChartHtml(devNum="") {
 			</section>
   		  </div>
 	  """
-/* */
 	return data
 }
 
